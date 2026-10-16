@@ -2,9 +2,8 @@ FROM golang:1.27.2-bookworm AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/rebuildable ./cmd/rebuildable
+RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags=-s -o /out/rebuildable ./cmd/rebuildable
 
 FROM debian:bookworm-slim
 

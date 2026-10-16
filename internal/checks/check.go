@@ -55,11 +55,11 @@ func Registry() []Check {
 		gitRepoCheck{},
 		lockfileCheck{},
 		runtimeCheck{},
-		notImplementedCheck{id: "4", name: "Dockerfile builds and runs"},
-		notImplementedCheck{id: "5", name: "One test command"},
-		notImplementedCheck{id: "6", name: "README with setup, run, test"},
-		notImplementedCheck{id: "7", name: ".env.example / secrets"},
-		notImplementedCheck{id: "8", name: "No absolute paths"},
+		dockerfileCheck{},
+		testCommandCheck{},
+		readmeCheck{},
+		environmentCheck{},
+		absolutePathCheck{},
 	}
 }
 

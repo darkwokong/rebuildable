@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,7 @@ const maxScannedFileSize int64 = 1 << 20
 type Repo struct {
 	Root         string
 	GitRoot      string
+	DisplayName  string
 	Files        []string
 	Ecosystems   []Ecosystem
 	Read         func(path string) ([]byte, error)
@@ -30,8 +30,8 @@ type Repo struct {
 // optional so the Git check can report a useful failure instead of making the
 // entire audit a tool error.
 func Load(ctx context.Context, input string) (*Repo, func(), error) {
-	if strings.Contains(input, "://") || strings.HasPrefix(input, "git@") {
-		return nil, func() {}, fmt.Errorf("git URLs are not supported until the URL loader is implemented")
+	if isGitURL(input) {
+		return loadURL(ctx, input)
 	}
 
 	root, err := filepath.Abs(input)
@@ -46,8 +46,38 @@ func Load(ctx context.Context, input string) (*Repo, func(), error) {
 		return nil, func() {}, fmt.Errorf("repository path is not a directory: %s", input)
 	}
 
+	return loadRoot(ctx, root, filepath.ToSlash(input), func() {})
+}
+
+func loadURL(ctx context.Context, input string) (*Repo, func(), error) {
+	temporaryRoot, err := os.MkdirTemp("", "rebuildable-clone-")
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("create clone directory: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(temporaryRoot) }
+
+	command := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--no-tags", input, temporaryRoot)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		cleanup()
+		if ctx.Err() != nil {
+			return nil, func() {}, ctx.Err()
+		}
+		return nil, func() {}, fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	loaded, _, err := loadRoot(ctx, temporaryRoot, redactInput(input), cleanup)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, err
+	}
+	return loaded, cleanup, nil
+}
+
+func loadRoot(ctx context.Context, root, displayName string, cleanup func()) (*Repo, func(), error) {
 	gitRoot, gitAvailable, err := findGitRoot(ctx, root)
 	if err != nil {
+		cleanup()
 		return nil, func() {}, err
 	}
 
@@ -56,10 +86,12 @@ func Load(ctx context.Context, input string) (*Repo, func(), error) {
 	if gitAvailable {
 		files, err = listTrackedFiles(ctx, gitRoot, root)
 		if err != nil {
+			cleanup()
 			return nil, func() {}, err
 		}
 		commitCount, err = gitCommitCount(ctx, gitRoot)
 		if err != nil {
+			cleanup()
 			return nil, func() {}, err
 		}
 	}
@@ -67,6 +99,7 @@ func Load(ctx context.Context, input string) (*Repo, func(), error) {
 	loaded := &Repo{
 		Root:         root,
 		GitRoot:      gitRoot,
+		DisplayName:  displayName,
 		Files:        files,
 		Read:         readFile(root),
 		GitAvailable: gitAvailable,
@@ -74,7 +107,26 @@ func Load(ctx context.Context, input string) (*Repo, func(), error) {
 	}
 	loaded.Ecosystems = DetectEcosystems(loaded.Files)
 
-	return loaded, func() {}, nil
+	return loaded, cleanup, nil
+}
+
+func isGitURL(input string) bool {
+	return strings.Contains(input, "://") || strings.HasPrefix(input, "git@")
+}
+
+func redactInput(input string) string {
+	if strings.Contains(input, "://") {
+		parts := strings.SplitN(input, "://", 2)
+		if at := strings.Index(parts[1], "@"); at >= 0 {
+			return parts[0] + "://<credentials-redacted>" + parts[1][at:]
+		}
+	}
+	if strings.HasPrefix(input, "git@") {
+		if colon := strings.Index(input, ":"); colon >= 0 {
+			return "git@<credentials-redacted>" + input[colon:]
+		}
+	}
+	return input
 }
 
 func findGitRoot(ctx context.Context, root string) (string, bool, error) {
@@ -137,23 +189,15 @@ func listTrackedFiles(ctx context.Context, gitRoot, scopeRoot string) ([]string,
 }
 
 func keepScannableFile(path string) bool {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxScannedFileSize {
 		return false
 	}
-
-	file, err := os.Open(path)
+	contents, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	defer file.Close()
-
-	var sample [8192]byte
-	count, err := file.Read(sample[:])
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false
-	}
-	return !bytes.Contains(sample[:count], []byte{0})
+	return !bytes.Contains(contents, []byte{0})
 }
 
 func gitCommitCount(ctx context.Context, gitRoot string) (int, error) {

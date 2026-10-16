@@ -46,6 +46,16 @@ func InitGitRepo(t *testing.T, root string, commits int) {
 	}
 }
 
+func CreateBareClone(t *testing.T, source string) string {
+	t.Helper()
+	bare := filepath.Join(t.TempDir(), "fixture.git")
+	command := exec.Command("git", "clone", "--bare", source, bare)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v\n%s", err, output)
+	}
+	return bare
+}
+
 func runGit(t *testing.T, root string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", args...)

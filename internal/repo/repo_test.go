@@ -113,6 +113,34 @@ func TestLoadNonGitDirectory(t *testing.T) {
 	}
 }
 
+func TestLoadShallowFileURLAndCleansClone(t *testing.T) {
+	source := testutil.CopyFixture(t, "good-go")
+	testutil.InitGitRepo(t, source, 3)
+	bare := testutil.CreateBareClone(t, source)
+
+	loaded, cleanup, err := repo.Load(t.Context(), "file://"+bare)
+	if err != nil {
+		t.Fatalf("load file URL: %v", err)
+	}
+	cloneRoot := loaded.Root
+	if loaded.CommitCount != 1 {
+		t.Fatalf("shallow clone commit count = %d, want 1", loaded.CommitCount)
+	}
+	if loaded.DisplayName != "file://"+bare {
+		t.Fatalf("display name = %q, want file URL", loaded.DisplayName)
+	}
+	if !repo.HasFile(loaded.Files, "go.mod") {
+		t.Fatalf("cloned tracked files = %v, want go.mod", loaded.Files)
+	}
+	if _, err := os.Stat(cloneRoot); err != nil {
+		t.Fatalf("clone root before cleanup: %v", err)
+	}
+	cleanup()
+	if _, err := os.Stat(cloneRoot); !os.IsNotExist(err) {
+		t.Fatalf("clone root after cleanup: %v", err)
+	}
+}
+
 func TestReadRejectsPathEscape(t *testing.T) {
 	root := testutil.CopyFixture(t, "good-go")
 	testutil.InitGitRepo(t, root, 1)

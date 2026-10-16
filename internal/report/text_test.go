@@ -30,7 +30,7 @@ func TestRenderText(t *testing.T) {
 		"Git repo with commits",
 		"go.mod — go.sum is missing",
 		"→ run: go mod tidy",
-		"Score 1/8",
+		"Score 1/3",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("report does not contain %q:\n%s", expected, text)

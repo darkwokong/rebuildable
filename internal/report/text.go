@@ -11,6 +11,10 @@ import (
 )
 
 func RenderText(w io.Writer, r *repo.Repo, results []checks.Result, color bool) error {
+	return RenderTextWithMinimum(w, r, results, color, nil)
+}
+
+func RenderTextWithMinimum(w io.Writer, r *repo.Repo, results []checks.Result, color bool, minimumScore *int) error {
 	ecosystems := make([]string, 0, len(r.Ecosystems))
 	for _, ecosystem := range r.Ecosystems {
 		ecosystems = append(ecosystems, ecosystem.String())
@@ -20,7 +24,11 @@ func RenderText(w io.Writer, r *repo.Repo, results []checks.Result, color bool) 
 		label = "unknown"
 	}
 
-	if _, err := fmt.Fprintf(w, "Rebuildable · %s · %s\n\n", filepath.ToSlash(r.Root), label); err != nil {
+	name := r.DisplayName
+	if name == "" {
+		name = filepath.ToSlash(r.Root)
+	}
+	if _, err := fmt.Fprintf(w, "Rebuildable · %s · %s\n\n", name, label); err != nil {
 		return err
 	}
 
@@ -60,7 +68,15 @@ func RenderText(w io.Writer, r *repo.Repo, results []checks.Result, color bool) 
 		}
 	}
 
-	if _, err := fmt.Fprintf(w, "\n  Score %d/8\n", checks.Score(results)); err != nil {
+	if _, err := fmt.Fprintf(w, "\n  Score %d/%d", checks.Score(results), len(results)); err != nil {
+		return err
+	}
+	if minimumScore != nil {
+		if _, err := fmt.Fprintf(w, " · minimum %d", *minimumScore); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
 	return nil
