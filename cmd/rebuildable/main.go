@@ -62,6 +62,7 @@ func newAuditCommand() *cobra.Command {
 		Short: "Audit a local repository or Git URL",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			started := time.Now()
 			if minimumScore < -1 || minimumScore > 8 || (minimumScore == -1 && cmd.Flags().Changed("min-score")) {
 				return fmt.Errorf("--min-score must be between 0 and 8")
 			}
@@ -96,7 +97,7 @@ func newAuditCommand() *cobra.Command {
 			if asJSON {
 				renderErr = report.RenderJSON(cmd.OutOrStdout(), loaded, results, minimum)
 			} else {
-				renderErr = report.RenderTextWithMinimum(cmd.OutOrStdout(), loaded, results, terminalColor(cmd.OutOrStdout()), minimum)
+				renderErr = report.RenderTextWithOptions(cmd.OutOrStdout(), loaded, results, terminalColor(cmd.OutOrStdout()), minimum, time.Since(started))
 			}
 			if renderErr != nil {
 				return renderErr

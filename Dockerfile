@@ -11,6 +11,10 @@ CMD ["go", "test", "./..."]
 
 FROM debian:bookworm-slim AS runtime
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes git \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=build /out/rebuildable /usr/local/bin/rebuildable
 COPY . /app

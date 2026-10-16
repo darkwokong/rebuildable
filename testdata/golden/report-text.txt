@@ -7,4 +7,4 @@ Rebuildable · fixture · go
       → run: go mod tidy
   ○ Runtime version pinned         not implemented in Session 1
 
-  Score 1/3
+  Score 1/3 · 0 fixable with `rebuildable fix --write`

@@ -63,7 +63,9 @@ func loadURL(ctx context.Context, input string) (*Repo, func(), error) {
 		if ctx.Err() != nil {
 			return nil, func() {}, ctx.Err()
 		}
-		return nil, func() {}, fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(output)))
+		message := strings.TrimSpace(string(output))
+		message = strings.ReplaceAll(message, input, redactInput(input))
+		return nil, func() {}, fmt.Errorf("git clone failed: %s", message)
 	}
 
 	loaded, _, err := loadRoot(ctx, temporaryRoot, redactInput(input), cleanup)

@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jayeshsarvaiya/rebuildable/internal/checks"
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
@@ -15,6 +16,10 @@ func RenderText(w io.Writer, r *repo.Repo, results []checks.Result, color bool) 
 }
 
 func RenderTextWithMinimum(w io.Writer, r *repo.Repo, results []checks.Result, color bool, minimumScore *int) error {
+	return RenderTextWithOptions(w, r, results, color, minimumScore, 0)
+}
+
+func RenderTextWithOptions(w io.Writer, r *repo.Repo, results []checks.Result, color bool, minimumScore *int, duration time.Duration) error {
 	ecosystems := make([]string, 0, len(r.Ecosystems))
 	for _, ecosystem := range r.Ecosystems {
 		ecosystems = append(ecosystems, ecosystem.String())
@@ -76,10 +81,28 @@ func RenderTextWithMinimum(w io.Writer, r *repo.Repo, results []checks.Result, c
 			return err
 		}
 	}
+	if _, err := fmt.Fprintf(w, " · %d fixable with `rebuildable fix --write`", fixableCount(results)); err != nil {
+		return err
+	}
+	if duration > 0 {
+		if _, err := fmt.Fprintf(w, " · %s", duration.Round(time.Millisecond)); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
 	return nil
+}
+
+func fixableCount(results []checks.Result) int {
+	count := 0
+	for _, result := range results {
+		if result.Fixable && result.Status != checks.StatusPass {
+			count++
+		}
+	}
+	return count
 }
 
 func statusIcon(status checks.Status) string {

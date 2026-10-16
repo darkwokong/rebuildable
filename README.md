@@ -10,6 +10,7 @@ Rebuildable is written in Go. Install Go 1.27 or newer. Dependencies are vendore
 
 ```sh
 go version
+go install ./cmd/rebuildable
 ```
 
 Docker is only needed for the verification command. The audit, fix, and default test suite do not require API keys. Dependencies are vendored for offline builds.
@@ -55,6 +56,30 @@ go run ./cmd/rebuildable verify . --timeout 10m --keep-logs
 Verification builds with `docker build --no-cache`, builds a dedicated test stage when the Dockerfile provides one, starts the application image, probes an explicitly exposed port, runs the test command in an isolated container, and cleans up its image and containers. Logs are retained on failure and can be retained on success with `--keep-logs`.
 
 The audit implements all eight static checks. Warnings and failures do not earn points; only full passes count toward the score.
+
+Build and run the self-auditing image:
+
+```sh
+docker build --tag rebuildable .
+docker run --rm rebuildable
+```
+
+Typical audit output:
+
+```text
+Rebuildable · . · go
+
+  ✓ Git repo with commits          12 commit(s) found
+  ✓ Dependency lockfile            Go checksum file found
+  ✓ Runtime version pinned         Go 1.27 with toolchain go1.27.2
+  ✓ Dockerfile builds and runs     static FROM and run instructions found
+  ✓ One test command               test target runs go test ./...
+  ✓ README with setup, run, test   setup, run, and test sections found
+  ✓ .env.example / secrets         no tracked .env, hard-coded secret, or undocumented environment variable found
+  ✓ No absolute paths              no home-directory absolute paths found in tracked text files
+
+  Score 8/8 · 0 fixable with `rebuildable fix --write`
+```
 
 ## Test
 

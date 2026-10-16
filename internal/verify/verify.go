@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
 )
 
 var ErrDockerUnavailable = errors.New("docker is unavailable")
+var runCounter atomic.Uint64
 
 type Options struct {
 	Timeout  time.Duration
@@ -68,7 +70,7 @@ func Run(ctx context.Context, workspace *repo.Workspace, options Options) (Repor
 	if err != nil {
 		return Report{}, err
 	}
-	runID := strconv.FormatInt(time.Now().UnixNano(), 36)
+	runID := strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(runCounter.Add(1), 36)
 	imageTag := "rebuildable-verify-" + runID
 	testImageTag := ""
 	containerName := "rebuildable-verify-" + runID
