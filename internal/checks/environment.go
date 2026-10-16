@@ -148,6 +148,18 @@ func collectEnvironmentReferences(r *repo.Repo) []envReference {
 	return references
 }
 
+// DetectedEnvironmentVariables returns deterministic variable names found in
+// supported source files. It is shared by fix so .env.example generation uses
+// the same detection rules as the audit.
+func DetectedEnvironmentVariables(r *repo.Repo) []string {
+	references := collectEnvironmentReferences(r)
+	names := make([]string, 0, len(references))
+	for _, reference := range references {
+		names = append(names, reference.Name)
+	}
+	return names
+}
+
 func collectExampleKeys(r *repo.Repo) map[string]bool {
 	keys := make(map[string]bool)
 	if !repo.HasFile(r.Files, ".env.example") {

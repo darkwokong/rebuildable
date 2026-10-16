@@ -1,0 +1,14 @@
+FROM golang:{{.Version}}-bookworm AS build
+
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -o /out/app {{.BuildTarget}}
+
+FROM build AS rebuildable-test
+CMD ["go", "test", "./..."]
+
+FROM debian:bookworm-slim AS runtime
+
+WORKDIR /app
+COPY --from=build /out/app /usr/local/bin/app
+ENTRYPOINT ["/usr/local/bin/app"]

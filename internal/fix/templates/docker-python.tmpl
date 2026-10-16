@@ -1,0 +1,8 @@
+FROM python:{{.Version}}-slim AS rebuildable-test
+WORKDIR /app
+COPY . .
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; elif [ -f pyproject.toml ]; then pip install .; fi
+CMD ["python", "-m", "pytest"]
+
+FROM rebuildable-test AS runtime
+CMD ["python", "{{.EntryPoint}}"]

@@ -6,10 +6,13 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jayeshsarvaiya/rebuildable/internal/checks"
+	"github.com/jayeshsarvaiya/rebuildable/internal/fix"
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
 	"github.com/jayeshsarvaiya/rebuildable/internal/report"
+	"github.com/jayeshsarvaiya/rebuildable/internal/verify"
 	"github.com/spf13/cobra"
 )
 
@@ -45,6 +48,8 @@ func newRootCommand() *cobra.Command {
 	}
 
 	root.AddCommand(newAuditCommand())
+	root.AddCommand(newFixCommand())
+	root.AddCommand(newVerifyCommand())
 	return root
 }
 
@@ -115,4 +120,107 @@ func terminalColor(w io.Writer) bool {
 	}
 	info, err := file.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func newFixCommand() *cobra.Command {
+	var write bool
+	var force bool
+	var only []string
+	var ecosystem string
+	command := &cobra.Command{
+		Use:   "fix [path]",
+		Short: "Generate missing reproducibility files",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "."
+			if len(args) == 1 {
+				path = args[0]
+			}
+			workspace, cleanup, err := repo.LoadWorkspace(cmd.Context(), path)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			plan, err := fix.PlanChanges(cmd.Context(), workspace, fix.Options{Only: only, Force: force, Ecosystem: ecosystem})
+			if err != nil {
+				return err
+			}
+			if !write {
+				return fix.RenderUnifiedDiff(cmd.OutOrStdout(), plan)
+			}
+			applied, err := fix.ApplyChanges(cmd.Context(), workspace, plan, force)
+			if err != nil {
+				return err
+			}
+			for _, change := range applied.Applied {
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "created %s\n", change.Path); err != nil {
+					return err
+				}
+			}
+			for _, change := range applied.Skipped {
+				if change.Action == fix.ActionNoop {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "unchanged %s\n", change.Path); err != nil {
+						return err
+					}
+				}
+			}
+			if len(applied.Conflicts) > 0 {
+				for _, change := range applied.Conflicts {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "protected %s (use --force to replace)\n", change.Path); err != nil {
+						return err
+					}
+				}
+				return &exitError{code: 1, err: fmt.Errorf("%d existing file(s) require --force", len(applied.Conflicts))}
+			}
+			if len(applied.Applied) == 0 && len(applied.Skipped) == 0 {
+				_, err := io.WriteString(cmd.OutOrStdout(), "No generated changes.\n")
+				return err
+			}
+			return nil
+		},
+	}
+	command.Flags().BoolVar(&write, "write", false, "apply generated files instead of showing a diff")
+	command.Flags().BoolVar(&force, "force", false, "allow replacing existing files when used with --write")
+	command.Flags().StringSliceVar(&only, "only", nil, "limit generators: dockerfile,env,pins,readme,test")
+	command.Flags().StringVar(&ecosystem, "ecosystem", "", "select an ecosystem when multiple are detected")
+	return command
+}
+
+func newVerifyCommand() *cobra.Command {
+	var timeout time.Duration
+	var port int
+	var keepLogs bool
+	var logDir string
+	command := &cobra.Command{
+		Use:   "verify [path]",
+		Short: "Build and test a repository in Docker",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "."
+			if len(args) == 1 {
+				path = args[0]
+			}
+			workspace, cleanup, err := repo.LoadWorkspace(cmd.Context(), path)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			verification, err := verify.Run(cmd.Context(), workspace, verify.Options{Timeout: timeout, Port: port, KeepLogs: keepLogs, LogDir: logDir})
+			if err != nil {
+				return err
+			}
+			if err := verify.RenderText(cmd.OutOrStdout(), verification); err != nil {
+				return err
+			}
+			if !verification.Passed() {
+				return &exitError{code: 1, err: fmt.Errorf("verification failed")}
+			}
+			return nil
+		},
+	}
+	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "timeout for each Docker stage")
+	command.Flags().IntVar(&port, "port", 8080, "port to probe when the container stays running")
+	command.Flags().BoolVar(&keepLogs, "keep-logs", false, "keep verification logs")
+	command.Flags().StringVar(&logDir, "log-dir", "", "workspace-relative directory for verification logs")
+	return command
 }

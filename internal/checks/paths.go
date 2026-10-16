@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"bufio"
 	"context"
 	"regexp"
 	"strings"
@@ -39,11 +38,8 @@ func (absolutePathCheck) Run(_ context.Context, r *repo.Repo) Result {
 		if err != nil {
 			continue
 		}
-		scanner := bufio.NewScanner(strings.NewReader(string(contents)))
-		lineNumber := 0
-		for scanner.Scan() {
+		for lineNumber, line := range strings.Split(string(contents), "\n") {
 			lineNumber++
-			line := scanner.Text()
 			for _, match := range append(posixMachinePathPattern.FindAllString(line, -1), windowsMachinePathPattern.FindAllString(line, -1)...) {
 				if isURLPath(line, match) {
 					continue
