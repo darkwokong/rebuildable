@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/jayeshsarvaiya/rebuildable/internal/checks"
@@ -47,7 +48,16 @@ func newAuditCommand() *cobra.Command {
 			defer cleanup()
 
 			results := checks.RunAll(cmd.Context(), loaded)
-			return report.RenderText(cmd.OutOrStdout(), loaded, results, true)
+			return report.RenderText(cmd.OutOrStdout(), loaded, results, terminalColor(cmd.OutOrStdout()))
 		},
 	}
+}
+
+func terminalColor(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

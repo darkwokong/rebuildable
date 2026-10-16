@@ -24,3 +24,9 @@ func TestAuditCommand(t *testing.T) {
 		t.Fatalf("audit output does not contain score:\n%s", output.String())
 	}
 }
+
+func TestTerminalColorOnlyTargetsCharacterDevices(t *testing.T) {
+	if terminalColor(&bytes.Buffer{}) {
+		t.Fatal("buffer should not be treated as a color terminal")
+	}
+}
