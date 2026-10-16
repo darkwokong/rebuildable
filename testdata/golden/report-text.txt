@@ -1,0 +1,10 @@
+Rebuildable · fixture · go
+
+  ✓ Git repo with commits          3 commit(s) found
+      .git — 3 commit(s) found
+  ✗ Dependency lockfile            go.sum is missing
+      go.mod — go.sum is missing
+      → run: go mod tidy
+  ○ Runtime version pinned         not implemented in Session 1
+
+  Score 1/3

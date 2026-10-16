@@ -1,0 +1,46 @@
+{
+  "repository": "fixture",
+  "ecosystems": [
+    "go"
+  ],
+  "score": 1,
+  "total": 3,
+  "checks": [
+    {
+      "id": "1",
+      "name": "Git repo with commits",
+      "status": "pass",
+      "findings": [
+        {
+          "file": ".git",
+          "message": "3 commit(s) found"
+        }
+      ],
+      "fixable": false
+    },
+    {
+      "id": "2",
+      "name": "Dependency lockfile",
+      "status": "fail",
+      "findings": [
+        {
+          "file": "go.mod",
+          "message": "go.sum is missing",
+          "hint": "run: go mod tidy"
+        }
+      ],
+      "fixable": false
+    },
+    {
+      "id": "3",
+      "name": "Runtime version pinned",
+      "status": "skip",
+      "findings": [
+        {
+          "message": "not implemented in Session 1"
+        }
+      ],
+      "fixable": false
+    }
+  ]
+}
