@@ -1,0 +1,5 @@
+.env
+.rebuildable/
+bin/
+dist/
+coverage.out

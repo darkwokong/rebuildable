@@ -1,0 +1,10 @@
+{
+  "name": "bad-node-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "left-pad": "1.3.0"
+  }
+}

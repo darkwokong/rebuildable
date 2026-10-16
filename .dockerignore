@@ -1,0 +1,9 @@
+.git
+.env
+.rebuildable
+bin
+dist
+coverage.out
+node_modules
+__pycache__
+*.pyc
