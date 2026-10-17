@@ -1,6 +1,6 @@
 FROM node:{{.Version}}-bookworm-slim AS rebuildable-test
 WORKDIR /app
-COPY package*.json ./
+COPY package.json {{.Lockfile}} ./
 RUN {{.InstallCommand}}
 COPY . .
 CMD ["npm", "test"]

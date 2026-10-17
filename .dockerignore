@@ -1,5 +1,10 @@
+.git
 .env
+.env.*
+!.env.example
 .rebuildable
+*.pem
+*.key
 bin
 dist
 coverage.out

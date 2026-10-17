@@ -1,10 +1,15 @@
 APP := rebuildable
+VERSION ?= 0.1.0
+LDFLAGS := -X github.com/jayeshsarvaiya/rebuildable/internal/version.Version=$(VERSION)
 
-.PHONY: build test test-integration lint demo
+.PHONY: build test test-integration lint demo release
 
 build:
 	mkdir -p bin
-	go build -trimpath -o bin/$(APP) ./cmd/rebuildable
+	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(APP) ./cmd/rebuildable
+
+release:
+	VERSION=$(VERSION) ./scripts/release.sh
 
 test:
 	go test ./...

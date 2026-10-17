@@ -12,11 +12,16 @@ import (
 
 type testCommandCheck struct{}
 
+type TestCommand struct {
+	Args        []string
+	Description string
+}
+
 func (testCommandCheck) ID() string   { return "5" }
 func (testCommandCheck) Name() string { return "One test command" }
 
 func (testCommandCheck) Run(_ context.Context, r *repo.Repo) Result {
-	result := Result{CheckID: "5", Fixable: true}
+	result := Result{CheckID: "5"}
 	if repo.HasFile(r.Files, "Makefile") {
 		if line, command := makeTestTarget(r); command != "" {
 			result.Status = StatusPass
@@ -51,12 +56,72 @@ func (testCommandCheck) Run(_ context.Context, r *repo.Repo) Result {
 	}
 
 	result.Status = StatusFail
+	result.Fixable = canGenerateTestCommand(r)
 	result.Findings = []Finding{{
 		File:    "Makefile",
 		Message: "no recognized test command found",
 		Hint:    "add a Makefile test target or wire the detected ecosystem's test runner",
 	}}
 	return result
+}
+
+// DetectTestCommand is the shared command contract used by audit, fix, and
+// verify. It returns an argument vector rather than a shell string so callers
+// never need to execute untrusted shell text on the host.
+func DetectTestCommand(r *repo.Repo) (TestCommand, bool) {
+	if repo.HasFile(r.Files, "package.json") {
+		if _, script, status := nodeTestScript(r); status == StatusPass && script != "" {
+			return TestCommand{Args: []string{nodePackageManager(r), "test"}, Description: script}, true
+		}
+	}
+	for _, file := range r.Files {
+		if strings.HasSuffix(file, "_test.go") {
+			return TestCommand{Args: []string{"go", "test", "./..."}, Description: "go test ./..."}, true
+		}
+	}
+	if hasPytestConfig(r) && hasPythonTestFile(r) {
+		return TestCommand{Args: []string{"python", "-m", "pytest"}, Description: "python -m pytest"}, true
+	}
+	if repo.HasFile(r.Files, "Makefile") {
+		if _, command := makeTestTarget(r); command != "" {
+			return TestCommand{Args: []string{"make", "test"}, Description: "make test"}, true
+		}
+	}
+	return TestCommand{}, false
+}
+
+func canGenerateTestCommand(r *repo.Repo) bool {
+	if _, ok := DetectTestCommand(r); ok {
+		return false
+	}
+	return repo.HasFile(r.Files, "go.mod")
+}
+
+func nodePackageManager(r *repo.Repo) string {
+	if contents, err := r.Read("package.json"); err == nil {
+		var packageJSON struct {
+			PackageManager string `json:"packageManager"`
+		}
+		if json.Unmarshal(contents, &packageJSON) == nil && strings.Contains(packageJSON.PackageManager, "@") {
+			manager := strings.SplitN(packageJSON.PackageManager, "@", 2)[0]
+			if manager == "npm" || manager == "pnpm" || manager == "yarn" || manager == "bun" {
+				return manager
+			}
+		}
+	}
+	for _, candidate := range []struct {
+		file    string
+		manager string
+	}{
+		{file: "pnpm-lock.yaml", manager: "pnpm"},
+		{file: "yarn.lock", manager: "yarn"},
+		{file: "bun.lock", manager: "bun"},
+	} {
+		if repo.HasFile(r.Files, candidate.file) {
+			return candidate.manager
+		}
+	}
+	return "npm"
 }
 
 func makeTestTarget(r *repo.Repo) (int, string) {

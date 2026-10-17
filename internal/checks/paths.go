@@ -20,15 +20,6 @@ func (absolutePathCheck) Name() string { return "No absolute paths" }
 
 func (absolutePathCheck) Run(_ context.Context, r *repo.Repo) Result {
 	result := Result{CheckID: "8"}
-	if !r.GitAvailable {
-		result.Status = StatusSkip
-		result.Findings = []Finding{{
-			File:    ".git",
-			Message: "tracked-file snapshot is unavailable outside a Git repository",
-			Hint:    "initialize Git so reproducibility scans can inspect tracked files",
-		}}
-		return result
-	}
 
 	for _, file := range r.Files {
 		if isDependencyFile(file) {
@@ -59,7 +50,11 @@ func (absolutePathCheck) Run(_ context.Context, r *repo.Repo) Result {
 	}
 	if result.Status != StatusFail {
 		result.Status = StatusPass
-		result.Findings = []Finding{{Message: "no home-directory absolute paths found in tracked text files"}}
+		scope := "tracked"
+		if !r.GitAvailable {
+			scope = "working-tree"
+		}
+		result.Findings = []Finding{{Message: "no home-directory absolute paths found in " + scope + " text files"}}
 	}
 	return result
 }

@@ -79,7 +79,9 @@ func listWorkspaceFiles(root string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		files = append(files, filepath.ToSlash(relative))
+		if keepScannableFile(path) {
+			files = append(files, filepath.ToSlash(relative))
+		}
 		return nil
 	})
 	if err != nil {

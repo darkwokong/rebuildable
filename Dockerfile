@@ -3,6 +3,13 @@ FROM golang:1.27.2-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY . .
+RUN git init -q \
+    && git config user.email rebuildable-image@example.invalid \
+    && git config user.name Rebuildable-Image \
+    && git add . \
+    && git commit -q -m "image snapshot" \
+    && git commit --allow-empty -q -m "image history" \
+    && git commit --allow-empty -q -m "image history 2"
 RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags=-s -o /out/rebuildable ./cmd/rebuildable
 
 FROM build AS rebuildable-test
@@ -17,7 +24,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=build /out/rebuildable /usr/local/bin/rebuildable
-COPY . /app
+COPY --from=build /src /app
 
 ENTRYPOINT ["rebuildable"]
 CMD ["audit", "/app"]

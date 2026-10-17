@@ -20,6 +20,7 @@ type Repo struct {
 	GitRoot      string
 	DisplayName  string
 	Files        []string
+	TrackedFiles []string
 	Ecosystems   []Ecosystem
 	Read         func(path string) ([]byte, error)
 	GitAvailable bool
@@ -45,6 +46,10 @@ func Load(ctx context.Context, input string) (*Repo, func(), error) {
 	if !info.IsDir() {
 		return nil, func() {}, fmt.Errorf("repository path is not a directory: %s", input)
 	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("resolve repository path: %w", err)
+	}
 
 	return loadRoot(ctx, root, filepath.ToSlash(input), func() {})
 }
@@ -56,7 +61,7 @@ func loadURL(ctx context.Context, input string) (*Repo, func(), error) {
 	}
 	cleanup := func() { _ = os.RemoveAll(temporaryRoot) }
 
-	command := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--no-tags", input, temporaryRoot)
+	command := exec.CommandContext(ctx, "git", "clone", "--depth=3", "--no-tags", "--", input, temporaryRoot)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		cleanup()
@@ -84,14 +89,22 @@ func loadRoot(ctx context.Context, root, displayName string, cleanup func()) (*R
 	}
 
 	files := make([]string, 0)
+	trackedFiles := make([]string, 0)
 	commitCount := 0
 	if gitAvailable {
-		files, err = listTrackedFiles(ctx, gitRoot, root)
+		trackedFiles, err = listTrackedFiles(ctx, gitRoot, root)
 		if err != nil {
 			cleanup()
 			return nil, func() {}, err
 		}
+		files = append(files, trackedFiles...)
 		commitCount, err = gitCommitCount(ctx, gitRoot)
+		if err != nil {
+			cleanup()
+			return nil, func() {}, err
+		}
+	} else {
+		files, err = listWorkspaceFiles(root)
 		if err != nil {
 			cleanup()
 			return nil, func() {}, err
@@ -103,6 +116,7 @@ func loadRoot(ctx context.Context, root, displayName string, cleanup func()) (*R
 		GitRoot:      gitRoot,
 		DisplayName:  displayName,
 		Files:        files,
+		TrackedFiles: trackedFiles,
 		Read:         readFile(root),
 		GitAvailable: gitAvailable,
 		CommitCount:  commitCount,
@@ -113,15 +127,32 @@ func loadRoot(ctx context.Context, root, displayName string, cleanup func()) (*R
 }
 
 func isGitURL(input string) bool {
-	return strings.Contains(input, "://") || strings.HasPrefix(input, "git@")
+	if strings.HasPrefix(input, "git@") {
+		return true
+	}
+	parts := strings.SplitN(input, "://", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	switch strings.ToLower(parts[0]) {
+	case "file", "git", "http", "https", "ssh":
+		return true
+	default:
+		return false
+	}
 }
 
 func redactInput(input string) string {
 	if strings.Contains(input, "://") {
 		parts := strings.SplitN(input, "://", 2)
-		if at := strings.Index(parts[1], "@"); at >= 0 {
-			return parts[0] + "://<credentials-redacted>" + parts[1][at:]
+		authorityAndPath := parts[1]
+		if at := strings.LastIndex(authorityAndPath, "@"); at >= 0 {
+			authorityAndPath = "<credentials-redacted>" + authorityAndPath[at:]
 		}
+		if query := strings.IndexAny(authorityAndPath, "?#"); query >= 0 {
+			authorityAndPath = authorityAndPath[:query]
+		}
+		return parts[0] + "://" + authorityAndPath
 	}
 	if strings.HasPrefix(input, "git@") {
 		if colon := strings.Index(input, ":"); colon >= 0 {
@@ -182,7 +213,8 @@ func listTrackedFiles(ctx context.Context, gitRoot, scopeRoot string) ([]string,
 			}
 			name = strings.TrimPrefix(name, prefix)
 		}
-		if keepScannableFile(filepath.Join(scopeRoot, filepath.FromSlash(name))) {
+		fullPath := filepath.Join(scopeRoot, filepath.FromSlash(name))
+		if pathHasNoSymlinkComponents(scopeRoot, fullPath) && keepScannableFile(fullPath) {
 			files = append(files, name)
 		}
 	}
@@ -200,6 +232,25 @@ func keepScannableFile(path string) bool {
 		return false
 	}
 	return !bytes.Contains(contents, []byte{0})
+}
+
+func pathHasNoSymlinkComponents(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return false
+	}
+	current := root
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "." || component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func gitCommitCount(ctx context.Context, gitRoot string) (int, error) {
@@ -243,6 +294,9 @@ func readFile(root string) func(string) ([]byte, error) {
 		relative, err := filepath.Rel(root, full)
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("path escapes repository root: %s", path)
+		}
+		if !pathHasNoSymlinkComponents(root, full) {
+			return nil, fmt.Errorf("path contains a symlink or escapes repository root: %s", path)
 		}
 		return os.ReadFile(full)
 	}

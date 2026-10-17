@@ -13,6 +13,7 @@ import (
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
 	"github.com/jayeshsarvaiya/rebuildable/internal/report"
 	"github.com/jayeshsarvaiya/rebuildable/internal/verify"
+	"github.com/jayeshsarvaiya/rebuildable/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -43,6 +44,7 @@ func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "rebuildable",
 		Short:         "Audit a repository for reproducibility",
+		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -192,6 +194,7 @@ func newVerifyCommand() *cobra.Command {
 	var port int
 	var keepLogs bool
 	var logDir string
+	var trust bool
 	command := &cobra.Command{
 		Use:   "verify [path]",
 		Short: "Build and test a repository in Docker",
@@ -206,7 +209,7 @@ func newVerifyCommand() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			verification, err := verify.Run(cmd.Context(), workspace, verify.Options{Timeout: timeout, Port: port, KeepLogs: keepLogs, LogDir: logDir})
+			verification, err := verify.Run(cmd.Context(), workspace, verify.Options{Timeout: timeout, Port: port, KeepLogs: keepLogs, LogDir: logDir, Trusted: trust})
 			if err != nil {
 				return err
 			}
@@ -223,5 +226,6 @@ func newVerifyCommand() *cobra.Command {
 	command.Flags().IntVar(&port, "port", 8080, "port to probe when the container stays running")
 	command.Flags().BoolVar(&keepLogs, "keep-logs", false, "keep verification logs")
 	command.Flags().StringVar(&logDir, "log-dir", "", "workspace-relative directory for verification logs")
+	command.Flags().BoolVar(&trust, "trust", false, "allow execution of repository-controlled Docker build and runtime commands")
 	return command
 }

@@ -108,8 +108,8 @@ func TestLoadNonGitDirectory(t *testing.T) {
 	if loaded.GitAvailable {
 		t.Fatal("expected Git to be unavailable")
 	}
-	if len(loaded.Files) != 0 {
-		t.Fatalf("files = %v, want no tracked files", loaded.Files)
+	if len(loaded.Files) != 1 || loaded.Files[0] != "go.mod" {
+		t.Fatalf("files = %v, want present working-tree go.mod", loaded.Files)
 	}
 }
 
@@ -123,8 +123,8 @@ func TestLoadShallowFileURLAndCleansClone(t *testing.T) {
 		t.Fatalf("load file URL: %v", err)
 	}
 	cloneRoot := loaded.Root
-	if loaded.CommitCount != 1 {
-		t.Fatalf("shallow clone commit count = %d, want 1", loaded.CommitCount)
+	if loaded.CommitCount != 3 {
+		t.Fatalf("shallow clone commit count = %d, want 3", loaded.CommitCount)
 	}
 	if loaded.DisplayName != "file://"+bare {
 		t.Fatalf("display name = %q, want file URL", loaded.DisplayName)
@@ -152,6 +152,41 @@ func TestReadRejectsPathEscape(t *testing.T) {
 
 	if _, err := loaded.Read("../outside"); err == nil || !strings.Contains(err.Error(), "escapes") {
 		t.Fatalf("Read escape error = %v", err)
+	}
+}
+
+func TestLoadSkipsTrackedPathsThroughSymlinkedDirectories(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "main.go"), []byte("package outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package inside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.InitGitRepo(t, root, 1)
+	if err := os.RemoveAll(filepath.Join(root, "src")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "src")); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, cleanup, err := repo.Load(t.Context(), root)
+	if err != nil {
+		t.Fatalf("load symlinked repository: %v", err)
+	}
+	defer cleanup()
+	for _, file := range loaded.Files {
+		if file == "src/main.go" {
+			t.Fatalf("tracked file through symlink was scanned: %v", loaded.Files)
+		}
+	}
+	if _, err := loaded.Read("src/main.go"); err == nil {
+		t.Fatal("Read followed a symlinked directory outside the repository")
 	}
 }
 

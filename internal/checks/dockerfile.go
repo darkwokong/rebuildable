@@ -15,8 +15,9 @@ func (dockerfileCheck) ID() string   { return "4" }
 func (dockerfileCheck) Name() string { return "Dockerfile builds and runs" }
 
 func (dockerfileCheck) Run(_ context.Context, r *repo.Repo) Result {
-	result := Result{CheckID: "4", Fixable: true}
+	result := Result{CheckID: "4"}
 	if !repo.HasFile(r.Files, "Dockerfile") {
+		result.Fixable = true
 		result.Status = StatusFail
 		result.Findings = []Finding{{
 			File:    "Dockerfile",
@@ -67,6 +68,7 @@ func (dockerfileCheck) Run(_ context.Context, r *repo.Repo) Result {
 		})
 	}
 	if !repo.HasFile(r.Files, ".dockerignore") && result.Status != StatusFail {
+		result.Fixable = true
 		result.Status = StatusWarn
 		result.Findings = append(result.Findings, Finding{
 			File:    ".dockerignore",

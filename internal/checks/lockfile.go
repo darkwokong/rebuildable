@@ -14,7 +14,7 @@ func (lockfileCheck) ID() string   { return "2" }
 func (lockfileCheck) Name() string { return "Dependency lockfile" }
 
 func (lockfileCheck) Run(_ context.Context, r *repo.Repo) Result {
-	result := Result{CheckID: "2", Fixable: true}
+	result := Result{CheckID: "2", Fixable: false}
 	if len(r.Ecosystems) == 0 {
 		result.Status = StatusSkip
 		result.Findings = []Finding{{

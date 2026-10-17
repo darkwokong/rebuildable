@@ -14,10 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jayeshsarvaiya/rebuildable/internal/checks"
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
 )
 
 var ErrDockerUnavailable = errors.New("docker is unavailable")
+var ErrTrustRequired = errors.New("verification executes repository-controlled Dockerfiles; pass --trust to continue")
 var runCounter atomic.Uint64
 
 type Options struct {
@@ -25,6 +27,7 @@ type Options struct {
 	Port     int
 	KeepLogs bool
 	LogDir   string
+	Trusted  bool
 }
 
 type StageResult struct {
@@ -42,6 +45,7 @@ type Report struct {
 	TestImageTag string        `json:"test_image_tag,omitempty"`
 	LogDir       string        `json:"log_dir"`
 	Stages       []StageResult `json:"stages"`
+	Cleanup      []string      `json:"cleanup,omitempty"`
 }
 
 func (r Report) Passed() bool {
@@ -56,7 +60,10 @@ func (r Report) Passed() bool {
 	return true
 }
 
-func Run(ctx context.Context, workspace *repo.Workspace, options Options) (Report, error) {
+func Run(ctx context.Context, workspace *repo.Workspace, options Options) (result Report, resultErr error) {
+	if !options.Trusted {
+		return Report{}, ErrTrustRequired
+	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return Report{}, fmt.Errorf("%w: %v", ErrDockerUnavailable, err)
 	}
@@ -65,6 +72,9 @@ func Run(ctx context.Context, workspace *repo.Workspace, options Options) (Repor
 	}
 	if options.Port <= 0 || options.Port > 65535 {
 		return Report{}, fmt.Errorf("port must be between 1 and 65535")
+	}
+	if !workspace.HasFile("Dockerfile") {
+		return Report{}, fmt.Errorf("Dockerfile is missing; run rebuildable fix --write first")
 	}
 	logDir, err := prepareLogDir(workspace.Root, options.LogDir)
 	if err != nil {
@@ -78,7 +88,11 @@ func Run(ctx context.Context, workspace *repo.Workspace, options Options) (Repor
 	report := Report{ImageTag: imageTag, LogDir: logDir, Stages: make([]StageResult, 0, 4)}
 
 	defer func() {
-		cleanupDocker([]string{containerName, testContainerName}, []string{imageTag, testImageTag})
+		failures := cleanupDocker([]string{containerName, testContainerName}, []string{imageTag, testImageTag})
+		result.Cleanup = failures
+		if len(failures) > 0 && resultErr == nil {
+			resultErr = fmt.Errorf("Docker cleanup failed: %s", strings.Join(failures, "; "))
+		}
 	}()
 
 	build := runStage(ctx, options.Timeout, "build", filepath.Join(logDir, "build.log"), func(stageCtx context.Context, log io.Writer) (int, error) {
@@ -236,9 +250,13 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 
 	portMapping := fmt.Sprintf("%d:%d", options.Port, options.Port)
 	exposesPort := dockerfileExposesPort(workspace, options.Port)
-	createArgs := []string{"create", "--name", containerName}
+	networkMode := "none"
 	if exposesPort {
-		createArgs = append(createArgs, "--publish", portMapping)
+		networkMode = "default"
+	}
+	createArgs := []string{"create", "--name", containerName, "--network", networkMode, "--cpus", "2", "--memory", "1g", "--pids-limit", "256", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m", "--tmpfs", "/root:rw,nosuid,nodev,size=1g", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"}
+	if exposesPort {
+		createArgs = append(createArgs, "--publish", "127.0.0.1:"+portMapping)
 	}
 	createArgs = append(createArgs, imageTag)
 	var createOutput strings.Builder
@@ -260,6 +278,7 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 		stage.Duration = time.Since(started)
 		return stage, "", nil
 	}
+	defer func() { _ = captureContainerLogs(context.Background(), containerID, logFile) }()
 
 	exitCode, commandErr = runCommand(stageCtx, logFile, "docker", "start", containerID)
 	if errors.Is(stageCtx.Err(), context.DeadlineExceeded) {
@@ -343,12 +362,15 @@ func runTestStage(ctx context.Context, workspace *repo.Workspace, options Option
 	defer cancel()
 	var exitCode int
 	if testImageTag != "" {
-		args := append([]string{"run", "--name", testContainerName, "--network", "none", "--entrypoint", "", testImageTag}, command...)
+		args := []string{"run", "--name", testContainerName, "--network", "none", "--cpus", "2", "--memory", "1g", "--pids-limit", "256", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m", "--tmpfs", "/root:rw,nosuid,nodev,size=1g", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "", testImageTag}
+		args = append(args, command...)
 		exitCode, err = runCommand(stageCtx, logFile, "docker", args...)
 	} else if containerRunning(stageCtx, containerID) {
 		exitCode, err = runCommand(stageCtx, logFile, "docker", append([]string{"exec", containerID}, command...)...)
 	} else {
-		exitCode, err = runCommand(stageCtx, logFile, "docker", append([]string{"run", "--name", testContainerName, "--network", "none", "--entrypoint", "", imageTag}, command...)...)
+		args := []string{"run", "--name", testContainerName, "--network", "none", "--cpus", "2", "--memory", "1g", "--pids-limit", "256", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m", "--tmpfs", "/root:rw,nosuid,nodev,size=1g", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "", imageTag}
+		args = append(args, command...)
+		exitCode, err = runCommand(stageCtx, logFile, "docker", args...)
 	}
 	stage.ExitCode = exitCode
 	stage.Duration = time.Since(started)
@@ -410,19 +432,12 @@ func dockerfileExposesPort(workspace *repo.Workspace, port int) bool {
 }
 
 func testCommand(workspace *repo.Workspace) ([]string, error) {
-	if len(workspace.Ecosystems) != 1 {
-		return nil, fmt.Errorf("verify needs exactly one detected ecosystem to choose a test command")
+	snapshot := &repo.Repo{Root: workspace.Root, Files: workspace.Files, Read: workspace.Read, Ecosystems: workspace.Ecosystems, GitAvailable: workspace.GitAvailable, TrackedFiles: workspace.TrackedFiles}
+	command, ok := checks.DetectTestCommand(snapshot)
+	if !ok {
+		return nil, fmt.Errorf("no recognized test command found; add a supported test target before verification")
 	}
-	switch workspace.Ecosystems[0] {
-	case repo.EcosystemGo:
-		return []string{"go", "test", "./..."}, nil
-	case repo.EcosystemNode:
-		return []string{"npm", "test"}, nil
-	case repo.EcosystemPython:
-		return []string{"python", "-m", "pytest"}, nil
-	default:
-		return nil, fmt.Errorf("unsupported test ecosystem %q", workspace.Ecosystems[0])
-	}
+	return command.Args, nil
 }
 
 func runCommandCapture(ctx context.Context, output io.Writer, name string, args ...string) (int, error) {
@@ -505,17 +520,31 @@ func waitForHTTP(ctx context.Context, port int) error {
 	}
 }
 
-func cleanupDocker(containerNames []string, imageTags []string) {
+func captureContainerLogs(ctx context.Context, containerID string, log io.Writer) error {
+	if containerID == "" {
+		return nil
+	}
+	_, err := runCommand(ctx, log, "docker", "logs", "--timestamps", "--tail", "200", containerID)
+	return err
+}
+
+func cleanupDocker(containerNames []string, imageTags []string) []string {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	failures := make([]string, 0)
 	for _, containerName := range containerNames {
 		if containerName != "" {
-			_ = exec.CommandContext(cleanupCtx, "docker", "rm", "--force", containerName).Run()
+			if output, err := exec.CommandContext(cleanupCtx, "docker", "rm", "--force", containerName).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such container") {
+				failures = append(failures, fmt.Sprintf("container %s: %s", containerName, strings.TrimSpace(string(output))))
+			}
 		}
 	}
 	for _, imageTag := range imageTags {
 		if imageTag != "" {
-			_ = exec.CommandContext(cleanupCtx, "docker", "rmi", "--force", imageTag).Run()
+			if output, err := exec.CommandContext(cleanupCtx, "docker", "rmi", "--force", imageTag).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such image") {
+				failures = append(failures, fmt.Sprintf("image %s: %s", imageTag, strings.TrimSpace(string(output))))
+			}
 		}
 	}
+	return failures
 }

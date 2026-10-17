@@ -44,14 +44,13 @@ func (environmentCheck) Run(_ context.Context, r *repo.Repo) Result {
 	}
 
 	fixable := false
-	if repo.HasFile(r.Files, ".env") {
+	if repo.HasTrackedFile(r, ".env") {
 		result.Status = StatusFail
 		result.Findings = append(result.Findings, Finding{
 			File:    ".env",
 			Message: "a .env file is tracked by Git",
 			Hint:    "remove .env from Git and add it to .gitignore",
 		})
-		fixable = true
 	}
 
 	for _, file := range r.Files {
@@ -90,7 +89,7 @@ func (environmentCheck) Run(_ context.Context, r *repo.Repo) Result {
 			Hint:    "add the variable name with an empty value to .env.example",
 		})
 	}
-	if len(missingNames) > 0 || repo.HasFile(r.Files, ".env") {
+	if len(missingNames) > 0 {
 		fixable = true
 	}
 	result.Fixable = fixable

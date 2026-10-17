@@ -44,3 +44,7 @@ func HasFile(files []string, target string) bool {
 	}
 	return false
 }
+
+func HasTrackedFile(r *Repo, target string) bool {
+	return r.GitAvailable && HasFile(r.TrackedFiles, target)
+}

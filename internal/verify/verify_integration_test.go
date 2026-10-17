@@ -22,7 +22,7 @@ func TestGoodGoFixtureDockerVerify(t *testing.T) {
 	}
 	defer cleanup()
 
-	report, err := Run(context.Background(), workspace, Options{Timeout: 5 * time.Minute, Port: 18080})
+	report, err := Run(context.Background(), workspace, Options{Timeout: 5 * time.Minute, Port: 18080, Trusted: true})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -47,6 +47,12 @@ func main() {
 	_ = http.ListenAndServe(":18081", nil)
 }
 `)
+	writeIntegrationFile(t, root, "main_test.go", `package main
+
+import "testing"
+
+func TestHTTPFixture(t *testing.T) {}
+`)
 	writeIntegrationFile(t, root, "Dockerfile", `FROM golang:1.27.2-bookworm AS rebuildable-test
 WORKDIR /app
 COPY . .
@@ -65,7 +71,7 @@ CMD ["go", "run", "."]
 	}
 	defer cleanup()
 
-	report, err := Run(context.Background(), workspace, Options{Timeout: 5 * time.Minute, Port: 18081, KeepLogs: true})
+	report, err := Run(context.Background(), workspace, Options{Timeout: 5 * time.Minute, Port: 18081, KeepLogs: true, Trusted: true})
 	if err != nil {
 		t.Fatalf("HTTP verify: %v", err)
 	}

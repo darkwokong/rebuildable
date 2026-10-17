@@ -27,7 +27,7 @@ func dockerfileArtifacts(workspace *repo.Workspace, ecosystem repo.Ecosystem) ([
 		if err != nil {
 			return nil, err
 		}
-		data := map[string]string{"Version": version, "EntryPoint": pythonEntryPoint(workspace), "BuildTarget": goBuildTarget(workspace), "InstallCommand": nodeInstallCommand(workspace)}
+		data := map[string]string{"Version": version, "EntryPoint": pythonEntryPoint(workspace), "BuildTarget": goBuildTarget(workspace), "InstallCommand": nodeInstallCommand(workspace), "Lockfile": nodeLockfile(workspace)}
 		var templateName string
 		switch ecosystem {
 		case repo.EcosystemGo:
@@ -36,7 +36,7 @@ func dockerfileArtifacts(workspace *repo.Workspace, ecosystem repo.Ecosystem) ([
 			}
 			templateName = "docker-go.tmpl"
 		case repo.EcosystemNode:
-			if nodeStartScript(workspace) == "" {
+			if nodeStartScript(workspace) == "" || nodeLockfile(workspace) == "" {
 				// A Dockerfile with an invented start command is less useful than a
 				// manual-action finding; independent generators still run below.
 				templateName = ""
@@ -140,10 +140,11 @@ func pinArtifacts(workspace *repo.Workspace, ecosystem repo.Ecosystem) ([]artifa
 }
 
 func testArtifacts(workspace *repo.Workspace, ecosystem repo.Ecosystem) ([]artifact, error) {
-	if ecosystem == repo.EcosystemNode && nodeTestScript(workspace) == "" {
+	snapshot := workspaceRepo(workspace)
+	if _, ok := checks.DetectTestCommand(snapshot); ok {
 		return nil, nil
 	}
-	if ecosystem == repo.EcosystemPython && !pythonTestsDetected(workspace) {
+	if ecosystem == repo.EcosystemNode || ecosystem == repo.EcosystemPython {
 		return nil, nil
 	}
 	if workspace.HasFile("Makefile") {
@@ -417,10 +418,27 @@ func goBuildTarget(workspace *repo.Workspace) string {
 }
 
 func nodeInstallCommand(workspace *repo.Workspace) string {
-	if workspace.HasFile("package-lock.json") {
+	switch nodeLockfile(workspace) {
+	case "package-lock.json":
 		return "npm ci"
+	case "pnpm-lock.yaml":
+		return "corepack enable && pnpm install --frozen-lockfile"
+	case "yarn.lock":
+		return "corepack enable && yarn install --immutable"
+	case "bun.lock":
+		return "corepack enable && bun install --frozen-lockfile"
+	default:
+		return ""
 	}
-	return "npm install"
+}
+
+func nodeLockfile(workspace *repo.Workspace) string {
+	for _, file := range []string{"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock"} {
+		if workspace.HasFile(file) {
+			return file
+		}
+	}
+	return ""
 }
 
 func nodeStartScript(workspace *repo.Workspace) string {
@@ -492,6 +510,10 @@ func renderMakefile(ecosystem repo.Ecosystem) ([]byte, error) {
 	return renderTemplate(name, nil)
 }
 
+func workspaceRepo(workspace *repo.Workspace) *repo.Repo {
+	return &repo.Repo{Root: workspace.Root, Files: workspace.Files, Read: workspace.Read, Ecosystems: workspace.Ecosystems, GitAvailable: workspace.GitAvailable, TrackedFiles: workspace.TrackedFiles}
+}
+
 func hasMakeTestTarget(contents string) bool {
 	for _, line := range strings.Split(contents, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -503,17 +525,9 @@ func hasMakeTestTarget(contents string) bool {
 }
 
 func missingReadmeSections(contents string) []string {
-	sections := map[string]bool{"Setup": false, "Run": false, "Test": false}
-	for _, line := range strings.Split(contents, "\n") {
-		title := strings.ToLower(strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#")))
-		for section := range sections {
-			if title == strings.ToLower(section) || (section == "Setup" && title == "install") || (section == "Run" && title == "usage") || (section == "Test" && (title == "tests" || title == "testing")) {
-				sections[section] = true
-			}
-		}
-	}
+	sections := checks.ReadmeSections(contents)
 	missing := make([]string, 0, len(sections))
-	for _, section := range []string{"Setup", "Run", "Test"} {
+	for _, section := range []string{"setup", "run", "test"} {
 		if !sections[section] {
 			missing = append(missing, section)
 		}

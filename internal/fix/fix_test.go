@@ -15,7 +15,7 @@ import (
 )
 
 func TestDryRunProducesDiffWithoutMutation(t *testing.T) {
-	root := testutil.CopyFixture(t, "bad-node")
+	root := testutil.CopyFixture(t, "demo-node")
 	testutil.InitGitRepo(t, root, 3)
 	before, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
@@ -46,7 +46,7 @@ func TestDryRunProducesDiffWithoutMutation(t *testing.T) {
 }
 
 func TestWriteRaisesAuditScoreAndIsIdempotent(t *testing.T) {
-	root := testutil.CopyFixture(t, "bad-node")
+	root := testutil.CopyFixture(t, "demo-node")
 	testutil.InitGitRepo(t, root, 3)
 	workspace := loadWorkspace(t, root)
 	plan, err := PlanChanges(context.Background(), workspace, Options{})

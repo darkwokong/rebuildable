@@ -83,3 +83,7 @@ func readmeSections(contents string) map[string]bool {
 	}
 	return sections
 }
+
+func ReadmeSections(contents string) map[string]bool {
+	return readmeSections(contents)
+}

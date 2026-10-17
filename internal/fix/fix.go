@@ -166,7 +166,7 @@ func chooseEcosystem(workspace *repo.Workspace, options Options, selected map[st
 		}
 		return "", fmt.Errorf("ecosystem %q was not detected; found %s", options.Ecosystem, ecosystemList(workspace.Ecosystems))
 	}
-	needsEcosystem := selected["dockerfile"] || selected["pins"] || selected["test"]
+	needsEcosystem := selected["dockerfile"] || selected["pins"] || selected["test"] || selected["readme"]
 	if !needsEcosystem {
 		return "", nil
 	}
