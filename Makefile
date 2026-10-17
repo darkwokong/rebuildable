@@ -19,7 +19,7 @@ demo:
 	@set -eu; \
 	workspace=$$(mktemp -d); \
 	trap 'rm -rf "$$workspace"' EXIT; \
-	cp -R testdata/fixtures/bad-node/. "$$workspace"; \
+	cp -R testdata/fixtures/demo-node/. "$$workspace"; \
 	git -C "$$workspace" init -q; \
 	git -C "$$workspace" config user.email rebuildable-demo@example.invalid; \
 	git -C "$$workspace" config user.name Rebuildable-Demo; \
