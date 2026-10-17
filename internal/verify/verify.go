@@ -248,7 +248,6 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 	stageCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
 
-	portMapping := fmt.Sprintf("%d:%d", options.Port, options.Port)
 	exposesPort := dockerfileExposesPort(workspace, options.Port)
 	networkMode := "none"
 	if exposesPort {
@@ -256,7 +255,7 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 	}
 	createArgs := []string{"create", "--name", containerName, "--network", networkMode, "--cpus", "2", "--memory", "1g", "--pids-limit", "256", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=512m", "--tmpfs", "/root:rw,nosuid,nodev,size=1g", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"}
 	if exposesPort {
-		createArgs = append(createArgs, "--publish", "127.0.0.1:"+portMapping)
+		createArgs = append(createArgs, "--publish", fmt.Sprintf("127.0.0.1::%d", options.Port))
 	}
 	createArgs = append(createArgs, imageTag)
 	var createOutput strings.Builder
@@ -298,6 +297,15 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 		stage.Duration = time.Since(started)
 		return stage, containerID, nil
 	}
+	probePort := options.Port
+	if exposesPort {
+		probePort, err = publishedPort(stageCtx, containerID, options.Port, logFile)
+		if err != nil {
+			stage.Error = err.Error()
+			stage.Duration = time.Since(started)
+			return stage, containerID, nil
+		}
+	}
 
 	select {
 	case <-stageCtx.Done():
@@ -320,7 +328,7 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 	}
 	if running {
 		if exposesPort {
-			if err := waitForHTTP(stageCtx, options.Port); err != nil {
+			if err := waitForHTTP(stageCtx, probePort); err != nil {
 				if errors.Is(stageCtx.Err(), context.DeadlineExceeded) {
 					stage.TimedOut = true
 					stage.Error = "stage timed out"
@@ -337,10 +345,75 @@ func runContainerStage(ctx context.Context, workspace *repo.Workspace, options O
 		stage.Duration = time.Since(started)
 		return stage, containerID, nil
 	}
+	if !exposesPort && running {
+		running, exitStatus, err = waitForContainerExit(stageCtx, containerID, logFile)
+		if err != nil {
+			if errors.Is(stageCtx.Err(), context.DeadlineExceeded) {
+				stage.TimedOut = true
+				stage.Error = "stage timed out"
+			} else {
+				stage.Error = err.Error()
+			}
+			stage.Duration = time.Since(started)
+			return stage, containerID, nil
+		}
+		if running {
+			stage.TimedOut = true
+			stage.Error = "stage timed out"
+			stage.Duration = time.Since(started)
+			return stage, containerID, nil
+		}
+		if exitStatus != 0 {
+			stage.ExitCode = exitStatus
+			stage.Error = fmt.Sprintf("container exited with status %d", exitStatus)
+			stage.Duration = time.Since(started)
+			return stage, containerID, nil
+		}
+	}
 	stage.Passed = true
 	stage.ExitCode = exitStatus
 	stage.Duration = time.Since(started)
 	return stage, containerID, nil
+}
+
+func publishedPort(ctx context.Context, containerID string, containerPort int, log io.Writer) (int, error) {
+	var output strings.Builder
+	exitCode, err := runCommandCapture(ctx, io.MultiWriter(log, &output), "docker", "port", containerID, fmt.Sprintf("%d/tcp", containerPort))
+	if err != nil {
+		return 0, err
+	}
+	if exitCode != 0 {
+		return 0, fmt.Errorf("docker port exited with status %d", exitCode)
+	}
+	line := strings.TrimSpace(strings.SplitN(output.String(), "\n", 2)[0])
+	colon := strings.LastIndex(line, ":")
+	if colon < 0 {
+		return 0, fmt.Errorf("unexpected docker port output: %s", line)
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(line[colon+1:]))
+	if err != nil || port <= 0 {
+		return 0, fmt.Errorf("parse published port: %s", line)
+	}
+	return port, nil
+}
+
+func waitForContainerExit(ctx context.Context, containerID string, log io.Writer) (bool, int, error) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		running, exitStatus, err := inspectContainer(ctx, containerID, log)
+		if err != nil {
+			return false, 0, err
+		}
+		if !running {
+			return false, exitStatus, nil
+		}
+		select {
+		case <-ctx.Done():
+			return true, 0, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func runTestStage(ctx context.Context, workspace *repo.Workspace, options Options, imageTag, testImageTag, containerID, testContainerName, logDir string) StageResult {

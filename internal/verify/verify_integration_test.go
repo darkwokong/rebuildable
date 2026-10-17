@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jayeshsarvaiya/rebuildable/internal/fix"
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
 	"github.com/jayeshsarvaiya/rebuildable/internal/testutil"
 )
@@ -28,6 +29,54 @@ func TestGoodGoFixtureDockerVerify(t *testing.T) {
 	}
 	if !report.Passed() {
 		t.Fatalf("verification failed: %+v", report)
+	}
+}
+
+func TestGoodPythonFixtureDockerVerify(t *testing.T) {
+	root := testutil.CopyFixture(t, "good-python")
+	testutil.InitGitRepo(t, root, 3)
+	workspace, cleanup, err := repo.LoadWorkspace(context.Background(), root)
+	if err != nil {
+		t.Fatalf("load Python workspace: %v", err)
+	}
+	defer cleanup()
+
+	report, err := Run(context.Background(), workspace, Options{Timeout: 5 * time.Minute, Port: 18082, Trusted: true})
+	if err != nil {
+		t.Fatalf("Python verify: %v", err)
+	}
+	if !report.Passed() {
+		t.Fatalf("Python verification failed: %+v", report)
+	}
+}
+
+func TestGoodNodeFixtureFixAndDockerVerify(t *testing.T) {
+	root := testutil.CopyFixture(t, "demo-node")
+	testutil.InitGitRepo(t, root, 3)
+	workspace, cleanup, err := repo.LoadWorkspace(context.Background(), root)
+	if err != nil {
+		t.Fatalf("load Node workspace: %v", err)
+	}
+	plan, err := fix.PlanChanges(context.Background(), workspace, fix.Options{})
+	if err != nil {
+		t.Fatalf("plan Node fixture: %v", err)
+	}
+	if _, err := fix.ApplyChanges(context.Background(), workspace, plan, false); err != nil {
+		t.Fatalf("apply Node fixture: %v", err)
+	}
+	cleanup()
+	workspace, cleanup, err = repo.LoadWorkspace(context.Background(), root)
+	if err != nil {
+		t.Fatalf("reload Node workspace: %v", err)
+	}
+	defer cleanup()
+
+	report, err := Run(context.Background(), workspace, Options{Timeout: 5 * time.Minute, Port: 18083, Trusted: true})
+	if err != nil {
+		t.Fatalf("Node verify: %v", err)
+	}
+	if !report.Passed() {
+		t.Fatalf("Node verification failed: %+v", report)
 	}
 }
 

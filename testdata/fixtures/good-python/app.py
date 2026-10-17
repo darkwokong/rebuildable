@@ -1,0 +1,1 @@
+print("rebuildable python fixture")

@@ -16,11 +16,7 @@ FROM build AS rebuildable-test
 
 CMD ["go", "test", "./..."]
 
-FROM debian:bookworm-slim AS runtime
-
-RUN apt-get update \
-    && apt-get install --no-install-recommends --yes git \
-    && rm -rf /var/lib/apt/lists/*
+FROM golang:1.27.2-bookworm AS runtime
 
 WORKDIR /app
 COPY --from=build /out/rebuildable /usr/local/bin/rebuildable

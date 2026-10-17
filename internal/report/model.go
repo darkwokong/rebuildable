@@ -8,12 +8,16 @@ import (
 )
 
 type Document struct {
-	Repository   string        `json:"repository"`
-	Ecosystems   []string      `json:"ecosystems"`
-	Score        int           `json:"score"`
-	Total        int           `json:"total"`
-	MinimumScore *int          `json:"minimum_score,omitempty"`
-	Checks       []CheckReport `json:"checks"`
+	SchemaVersion int           `json:"schema_version"`
+	Mode          string        `json:"mode"`
+	Repository    string        `json:"repository"`
+	Ecosystems    []string      `json:"ecosystems"`
+	Score         int           `json:"score"`
+	Total         int           `json:"total"`
+	Passed        bool          `json:"passed"`
+	MinimumScore  *int          `json:"minimum_score,omitempty"`
+	MinimumMet    *bool         `json:"minimum_met,omitempty"`
+	Checks        []CheckReport `json:"checks"`
 }
 
 type CheckReport struct {
@@ -43,14 +47,22 @@ func BuildDocument(r *repo.Repo, results []checks.Result, minimumScore *int) Doc
 			Fixable:  result.Fixable,
 		})
 	}
-	return Document{
-		Repository:   displayName(r),
-		Ecosystems:   ecosystems,
-		Score:        checks.Score(results),
-		Total:        len(results),
-		MinimumScore: minimumScore,
-		Checks:       checkReports,
+	document := Document{
+		SchemaVersion: 1,
+		Mode:          "static",
+		Repository:    displayName(r),
+		Ecosystems:    ecosystems,
+		Score:         checks.Score(results),
+		Total:         len(results),
+		Passed:        checks.Score(results) == len(results),
+		MinimumScore:  minimumScore,
+		Checks:        checkReports,
 	}
+	if minimumScore != nil {
+		met := document.Score >= *minimumScore
+		document.MinimumMet = &met
+	}
+	return document
 }
 
 func displayName(r *repo.Repo) string {

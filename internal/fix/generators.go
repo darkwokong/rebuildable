@@ -191,10 +191,21 @@ func readmeArtifacts(workspace *repo.Workspace, ecosystem repo.Ecosystem) ([]art
 	var addition strings.Builder
 	for _, section := range missing {
 		addition.WriteString("\n## ")
-		addition.WriteString(section)
-		addition.WriteString("\n\nSee the generated ")
-		addition.WriteString(strings.ToLower(section))
-		addition.WriteString(" command for this project.\n")
+		addition.WriteString(strings.Title(section))
+		addition.WriteString("\n\n")
+		switch section {
+		case "setup":
+			addition.WriteString("Install the pinned ")
+			addition.WriteString(string(ecosystem))
+			addition.WriteString(" runtime and dependency files.\n")
+		case "run":
+			addition.WriteString("Run the project using its configured ")
+			addition.WriteString(string(ecosystem))
+			addition.WriteString(" application command.\n")
+		case "test":
+			addition.WriteString(readmeTestCommand(workspace, ecosystem))
+			addition.WriteByte('\n')
+		}
 	}
 	return []artifact{{Path: "README.md", Content: append(append([]byte{}, existing...), []byte(addition.String())...), Mode: 0o644}}, nil
 }
@@ -426,7 +437,7 @@ func nodeInstallCommand(workspace *repo.Workspace) string {
 	case "yarn.lock":
 		return "corepack enable && yarn install --immutable"
 	case "bun.lock":
-		return "corepack enable && bun install --frozen-lockfile"
+		return "npm install --global bun && bun install --frozen-lockfile"
 	default:
 		return ""
 	}
