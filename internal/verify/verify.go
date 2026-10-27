@@ -20,6 +20,7 @@ import (
 
 var ErrDockerUnavailable = errors.New("docker is unavailable")
 var ErrTrustRequired = errors.New("verification executes repository-controlled Dockerfiles; pass --trust to continue")
+var ErrCleanupFailed = errors.New("Docker cleanup failed")
 var runCounter atomic.Uint64
 
 type Options struct {
@@ -91,7 +92,7 @@ func Run(ctx context.Context, workspace *repo.Workspace, options Options) (resul
 		failures := cleanupDocker([]string{containerName, testContainerName}, []string{imageTag, testImageTag})
 		result.Cleanup = failures
 		if len(failures) > 0 && resultErr == nil {
-			resultErr = fmt.Errorf("Docker cleanup failed: %s", strings.Join(failures, "; "))
+			resultErr = fmt.Errorf("%w: %s", ErrCleanupFailed, strings.Join(failures, "; "))
 		}
 	}()
 
