@@ -3,10 +3,13 @@ package checks
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jayeshsarvaiya/rebuildable/internal/repo"
 )
+
+var inlineComment = regexp.MustCompile(`\s#`)
 
 type lockfileCheck struct{}
 
@@ -108,7 +111,7 @@ func firstUnpinnedRequirement(contents string) (lineNumber int, dependency strin
 			continue
 		}
 		seenDependency = true
-		if !strings.Contains(line, "==") {
+		if !strings.Contains(requirementSpecifier(line), "==") {
 			return index + 1, line, false
 		}
 	}
@@ -116,4 +119,16 @@ func firstUnpinnedRequirement(contents string) (lineNumber int, dependency strin
 		return 0, "", false
 	}
 	return 0, "", allPinned
+}
+
+// requirementSpecifier strips the inline comment and environment marker from a
+// requirements.txt line so that "==" inside them is not mistaken for a pin.
+func requirementSpecifier(line string) string {
+	if index := inlineComment.FindStringIndex(line); index != nil {
+		line = line[:index[0]]
+	}
+	if index := strings.Index(line, ";"); index >= 0 {
+		line = line[:index]
+	}
+	return line
 }
