@@ -329,6 +329,16 @@ func insertGoToolchain(contents []byte, version string) []byte {
 	lines := strings.Split(string(contents), "\n")
 	for index, line := range lines {
 		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "toolchain" {
+			// go.mod allows a single toolchain directive; replace an inexact one
+			// (for example "toolchain default") instead of adding a duplicate.
+			replaced := append([]string{}, lines...)
+			replaced[index] = "toolchain go" + normalizeRuntimeVersion(version, defaultGoVersion)
+			return []byte(strings.Join(replaced, "\n"))
+		}
+	}
+	for index, line := range lines {
+		fields := strings.Fields(line)
 		if len(fields) >= 2 && fields[0] == "go" {
 			insertion := append([]string{}, lines[:index+1]...)
 			insertion = append(insertion, "toolchain go"+normalizeRuntimeVersion(version, defaultGoVersion))
