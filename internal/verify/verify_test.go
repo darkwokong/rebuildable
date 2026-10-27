@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,5 +89,53 @@ func TestRunRequiresExplicitTrust(t *testing.T) {
 	_, err := Run(context.Background(), &repo.Workspace{Root: t.TempDir()}, Options{Timeout: time.Minute, Port: 8080})
 	if !errors.Is(err, ErrTrustRequired) {
 		t.Fatalf("error = %v, want ErrTrustRequired", err)
+	}
+}
+
+func TestWaitForHTTPHonorsContextDeadlineBeyondThirtySeconds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits more than 30 seconds")
+	}
+	started := time.Now()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if time.Since(started) < 31*time.Second {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	_, portText, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if err := waitForHTTP(ctx, port); err != nil {
+		t.Fatalf("waitForHTTP() error = %v, want nil once the server becomes healthy within the context deadline", err)
+	}
+}
+
+func TestWaitForHTTPReturnsContextErrorOnDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	_, portText, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if err := waitForHTTP(ctx, port); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitForHTTP() error = %v, want context.DeadlineExceeded", err)
 	}
 }

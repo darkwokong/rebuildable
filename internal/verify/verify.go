@@ -567,8 +567,6 @@ func containerRunning(ctx context.Context, containerID string) bool {
 
 func waitForHTTP(ctx context.Context, port int) error {
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.NewTimer(30 * time.Second)
-	defer deadline.Stop()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -585,9 +583,7 @@ func waitForHTTP(ctx context.Context, port int) error {
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline.C:
-			return fmt.Errorf("container did not respond on port %d", port)
+			return fmt.Errorf("container did not respond on port %d: %w", port, ctx.Err())
 		case <-ticker.C:
 		}
 	}
