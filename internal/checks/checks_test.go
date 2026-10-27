@@ -104,6 +104,9 @@ func TestLockfileVariants(t *testing.T) {
 		{name: "pnpm", ecosystem: repo.EcosystemNode, want: StatusPass, files: map[string]string{"package.json": "{}", "pnpm-lock.yaml": "lockfileVersion: 9"}},
 		{name: "uv", ecosystem: repo.EcosystemPython, want: StatusPass, files: map[string]string{"pyproject.toml": "[project]\nname = \"fixture\"\n", "uv.lock": "version = 1"}},
 		{name: "pinned requirements", ecosystem: repo.EcosystemPython, want: StatusPass, files: map[string]string{"requirements.txt": "requests==2.31.0\n"}},
+		{name: "pinned requirements with marker and comment", ecosystem: repo.EcosystemPython, want: StatusPass, files: map[string]string{"requirements.txt": "requests==2.31.0 ; python_version >= \"3.8\"  # http\n"}},
+		{name: "range hidden by marker", ecosystem: repo.EcosystemPython, want: StatusWarn, files: map[string]string{"requirements.txt": "requests==2.31.0\nimportlib-metadata>=6; python_version == \"3.8\"\n"}},
+		{name: "range hidden by comment", ecosystem: repo.EcosystemPython, want: StatusWarn, files: map[string]string{"requirements.txt": "requests>=2  # was ==2.31.0\n"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
